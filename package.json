@@ -1,0 +1,38 @@
+{
+  "name": "iso-online-backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "prisma:generate": "prisma generate --config prisma/prisma.config.ts",
+    "prisma:migrate": "prisma migrate dev --name init --config prisma/prisma.config.ts",
+    "prisma:studio": "prisma studio --config prisma/prisma.config.ts",
+    "prisma:db-push": "prisma db push --config prisma/prisma.config.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tantonPeerapat/iso-online-backend.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/tantonPeerapat/iso-online-backend/issues"
+  },
+  "homepage": "https://github.com/tantonPeerapat/iso-online-backend#readme",
+  "dependencies": {
+    "@prisma/client": "^7.8.0",
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.6.2",
+    "prisma": "^7.8.0",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^6.0.3"
+  }
+}

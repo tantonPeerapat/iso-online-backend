@@ -1,0 +1,469 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum RequestType {
+  CREATE_FILE
+  REVISE_FILE
+  OBSOLETE_FILE
+}
+
+enum RequestStatus {
+  DRAFT
+  IN_APPROVAL
+  REWORK
+  APPROVED
+  REJECTED
+  COMPLETED
+  CANCELLED
+}
+
+enum FileStatus {
+  DRAFT
+  IN_REVISION
+  APPROVED
+  PUBLISHED
+  OBSOLETE
+}
+
+enum WorkflowStatus {
+  IN_PROGRESS
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum ApprovalStepStatus {
+  PENDING
+  WAITING
+  APPROVED
+  REJECTED
+  SKIPPED
+}
+
+enum RevisionApprovalResult {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum RequestFileAction {
+  CREATE
+  REVISE
+  OBSOLETE
+}
+
+enum RevisionAttachmentType {
+  MAIN
+  ATTACHMENT
+  SUPPORTING
+}
+
+enum RevisionAttachmentAction {
+  NEW
+  UPDATED
+  UNCHANGED
+  REMOVED
+}
+
+model Department {
+  id             BigInt   @id @default(autoincrement())
+  departmentCode String   @map("department_code") @db.VarChar(20)
+  departmentName String   @map("department_name") @db.VarChar(255)
+  folderName     String?  @map("folder_name") @db.VarChar(255)
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  users                      User[]
+  requests                   DocumentRequest[]
+  files                      File[]
+  workflowTemplates          WorkflowTemplate[]
+  distributionDepartmentLogs DocumentDistributionLog[] @relation("DistributionTargetDepartment")
+
+  @@map("departments")
+}
+
+model User {
+  id           BigInt     @id @default(autoincrement())
+  employeeCode String     @unique @map("employee_code") @db.VarChar(20)
+  fullName     String     @map("full_name") @db.VarChar(255)
+  email        String     @unique @db.VarChar(255)
+  passwordHash String     @map("password_hash") @db.VarChar(255)
+  departmentId BigInt     @map("department_id")
+  status       UserStatus @default(ACTIVE)
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  department             Department                 @relation(fields: [departmentId], references: [id])
+  userRoles              UserRole[]
+  requestedRequests      DocumentRequest[]          @relation("RequestRequestedBy")
+  createdFiles           File[]                     @relation("FileCreatedBy")
+  createdRevisions       FileRevision[]             @relation("RevisionCreatedBy")
+  uploadedAttachments    FileRevisionAttachment[]   @relation("AttachmentUploadedBy")
+  submittedWorkflows     ApprovalWorkflow[]         @relation("WorkflowSubmittedBy")
+  approvalSteps          ApprovalStep[]             @relation("ApprovalStepApprover")
+  delegatedApprovalSteps ApprovalStep[]             @relation("ApprovalStepDelegatedFrom")
+  publishedLogs          DocumentPublishLog[]       @relation("DocumentPublishedBy")
+  distributedLogs        DocumentDistributionLog[]  @relation("DocumentDistributedBy")
+  distributionTargetLogs DocumentDistributionLog[]  @relation("DistributionTargetUser")
+  auditLogs              AuditLog[]
+
+  @@map("users")
+}
+
+model Role {
+  id          BigInt   @id @default(autoincrement())
+  roleName    String   @unique @map("role_name") @db.VarChar(100)
+  description String   @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  userRoles             UserRole[]
+  rolePermissions       RolePermission[]
+  workflowTemplateSteps WorkflowTemplateStep[]
+  approvalSteps         ApprovalStep[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id            BigInt @id @default(autoincrement())
+  permissionKey String @unique @map("permission_key") @db.VarChar(150)
+  description   String @db.Text
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model UserRole {
+  id         BigInt   @id @default(autoincrement())
+  userId     BigInt   @map("user_id")
+  roleId     BigInt   @map("role_id")
+  assignedAt DateTime @default(now()) @map("assigned_at")
+
+  user User @relation(fields: [userId], references: [id])
+  role Role @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  id           BigInt @id @default(autoincrement())
+  roleId       BigInt @map("role_id")
+  permissionId BigInt @map("permission_id")
+
+  role       Role       @relation(fields: [roleId], references: [id])
+  permission Permission @relation(fields: [permissionId], references: [id])
+
+  @@unique([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model DocumentCategory {
+  id           BigInt   @id @default(autoincrement())
+  categoryCode String   @map("category_code") @db.VarChar(20)
+  categoryName String   @map("category_name") @db.VarChar(255)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  fileLinks         FileCategoryLink[]
+  workflowTemplates WorkflowTemplate[]
+
+  @@map("document_categories")
+}
+
+model DocumentRequest {
+  id                BigInt        @id @default(autoincrement())
+  requestNo         String        @unique @map("request_no") @db.VarChar(50)
+  requestType       RequestType   @map("request_type")
+  title             String        @db.VarChar(255)
+  departmentId      BigInt        @map("department_id")
+  requestedBy       BigInt        @map("requested_by")
+  status            RequestStatus @default(DRAFT)
+  currentWorkflowId BigInt?       @unique @map("current_workflow_id")
+  submittedAt       DateTime?     @map("submitted_at")
+  completedAt       DateTime?     @map("completed_at")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  department      Department            @relation(fields: [departmentId], references: [id])
+  requester       User                  @relation("RequestRequestedBy", fields: [requestedBy], references: [id])
+  currentWorkflow ApprovalWorkflow?     @relation("CurrentRequestWorkflow", fields: [currentWorkflowId], references: [id])
+  requestFiles    DocumentRequestFile[]
+  fileRevisions   FileRevision[]
+  workflows       ApprovalWorkflow[]    @relation("RequestWorkflows")
+
+  @@index([status, departmentId])
+  @@map("document_requests")
+}
+
+model DocumentRequestFile {
+  id               BigInt            @id @default(autoincrement())
+  requestId         BigInt            @map("request_id")
+  fileId            BigInt?           @map("file_id")
+  targetRevisionId  BigInt?           @map("target_revision_id")
+  actionType        RequestFileAction @map("action_type")
+  note              String?           @db.Text
+  createdAt         DateTime          @default(now()) @map("created_at")
+
+  request        DocumentRequest @relation(fields: [requestId], references: [id])
+  file           File?           @relation(fields: [fileId], references: [id])
+  targetRevision FileRevision?   @relation(fields: [targetRevisionId], references: [id])
+
+  @@index([requestId])
+  @@index([fileId])
+  @@map("document_request_files")
+}
+
+model File {
+  id                BigInt     @id @default(autoincrement())
+  documentCode      String     @unique @map("document_code") @db.VarChar(50)
+  title             String     @db.VarChar(255)
+  departmentId      BigInt     @map("department_id")
+  currentRevisionId BigInt?    @unique @map("current_revision_id")
+  pendingRevisionId BigInt?    @unique @map("pending_revision_id")
+  status            FileStatus @default(DRAFT)
+  effectiveDate     DateTime?  @map("effective_date")
+  reviewDueDate     DateTime?  @map("review_due_date")
+  createdBy         BigInt     @map("created_by")
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+  publishedAt       DateTime?  @map("published_at")
+  obsoleteAt        DateTime?  @map("obsolete_at")
+
+  department       Department            @relation(fields: [departmentId], references: [id])
+  creator          User                  @relation("FileCreatedBy", fields: [createdBy], references: [id])
+  currentRevision  FileRevision?         @relation("CurrentFileRevision", fields: [currentRevisionId], references: [id])
+  pendingRevision  FileRevision?         @relation("PendingFileRevision", fields: [pendingRevisionId], references: [id])
+  categoryLinks    FileCategoryLink[]
+  requestFiles     DocumentRequestFile[]
+  revisions        FileRevision[]        @relation("FileRevisions")
+  publishLogs      DocumentPublishLog[]
+  distributionLogs DocumentDistributionLog[]
+
+  @@index([status, departmentId])
+  @@map("files")
+}
+
+model FileCategoryLink {
+  id         BigInt   @id @default(autoincrement())
+  fileId     BigInt   @map("file_id")
+  categoryId BigInt   @map("category_id")
+  isPrimary  Boolean  @default(false) @map("is_primary")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  file     File             @relation(fields: [fileId], references: [id])
+  category DocumentCategory @relation(fields: [categoryId], references: [id])
+
+  @@unique([fileId, categoryId])
+  @@map("file_category_links")
+}
+
+model FileRevision {
+  id             BigInt                 @id @default(autoincrement())
+  fileId          BigInt                 @map("file_id")
+  revisionNo      String                 @map("revision_no") @db.VarChar(20)
+  requestId       BigInt                 @map("request_id")
+  changeReason    String?                @map("change_reason") @db.Text
+  approvalResult  RevisionApprovalResult @default(PENDING) @map("approval_result")
+  isCurrent       Boolean                @default(false) @map("is_current")
+  createdBy       BigInt                 @map("created_by")
+  createdAt       DateTime               @default(now()) @map("created_at")
+  approvedAt      DateTime?              @map("approved_at")
+  publishedAt     DateTime?              @map("published_at")
+
+  file               File                     @relation("FileRevisions", fields: [fileId], references: [id])
+  request            DocumentRequest          @relation(fields: [requestId], references: [id])
+  creator            User                     @relation("RevisionCreatedBy", fields: [createdBy], references: [id])
+  currentForFile     File?                    @relation("CurrentFileRevision")
+  pendingForFile     File?                    @relation("PendingFileRevision")
+  requestFileTargets DocumentRequestFile[]
+  attachments        FileRevisionAttachment[]
+  publishLogs        DocumentPublishLog[]
+  distributionLogs   DocumentDistributionLog[]
+
+  @@unique([fileId, revisionNo])
+  @@map("file_revisions")
+}
+
+model FileRevisionAttachment {
+  id                 BigInt                   @id @default(autoincrement())
+  revisionId         BigInt                   @map("revision_id")
+  documentCode       String                   @map("document_code") @db.VarChar(50)
+  sourceAttachmentId BigInt?                  @map("source_attachment_id")
+  fileAction         RevisionAttachmentAction @default(NEW) @map("file_action")
+  fileType           RevisionAttachmentType   @map("file_type")
+  fileName           String                   @map("file_name") @db.VarChar(255)
+  filePath           String                   @map("file_path") @db.VarChar(500)
+  fileExt            String                   @map("file_ext") @db.VarChar(20)
+  mimeType           String?                  @map("mime_type") @db.VarChar(100)
+  fileSize           BigInt?                  @map("file_size")
+  fileVersionLabel   String?                  @map("file_version_label") @db.VarChar(50)
+  sortOrder          Int                      @default(1) @map("sort_order")
+  uploadedBy         BigInt                   @map("uploaded_by")
+  uploadedAt         DateTime                 @default(now()) @map("uploaded_at")
+  isActive           Boolean                  @default(true) @map("is_active")
+
+  revision           FileRevision             @relation(fields: [revisionId], references: [id])
+  uploader           User                     @relation("AttachmentUploadedBy", fields: [uploadedBy], references: [id])
+  sourceAttachment   FileRevisionAttachment?  @relation("AttachmentSource", fields: [sourceAttachmentId], references: [id])
+  derivedAttachments FileRevisionAttachment[] @relation("AttachmentSource")
+
+  @@unique([revisionId, sortOrder])
+  @@index([revisionId, fileType])
+  @@index([documentCode])
+  @@index([sourceAttachmentId])
+  @@map("file_revision_attachments")
+}
+
+model WorkflowTemplate {
+  id           BigInt   @id @default(autoincrement())
+  templateName String   @map("template_name") @db.VarChar(255)
+  categoryId   BigInt?  @map("category_id")
+  departmentId BigInt?  @map("department_id")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  category   DocumentCategory?      @relation(fields: [categoryId], references: [id])
+  department Department?            @relation(fields: [departmentId], references: [id])
+  steps      WorkflowTemplateStep[]
+  workflows  ApprovalWorkflow[]
+
+  @@map("workflow_templates")
+}
+
+model WorkflowTemplateStep {
+  id                 BigInt   @id @default(autoincrement())
+  workflowTemplateId BigInt   @map("workflow_template_id")
+  stepNo             Int      @map("step_no")
+  stepName           String   @map("step_name") @db.VarChar(255)
+  approverRoleId     BigInt   @map("approver_role_id")
+  isRequired         Boolean  @default(true) @map("is_required")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  workflowTemplate WorkflowTemplate @relation(fields: [workflowTemplateId], references: [id])
+  approverRole     Role             @relation(fields: [approverRoleId], references: [id])
+
+  @@unique([workflowTemplateId, stepNo])
+  @@map("workflow_template_steps")
+}
+
+model ApprovalWorkflow {
+  id                BigInt         @id @default(autoincrement())
+  requestId          BigInt         @map("request_id")
+  workflowTemplateId BigInt?        @map("workflow_template_id")
+  workflowNo         String         @unique @map("workflow_no") @db.VarChar(50)
+  status             WorkflowStatus @default(IN_PROGRESS)
+  submittedBy        BigInt         @map("submitted_by")
+  submittedAt        DateTime       @default(now()) @map("submitted_at")
+  currentStepNo      Int?           @map("current_step_no")
+  completedAt        DateTime?      @map("completed_at")
+  rejectReason       String?        @map("reject_reason") @db.Text
+  createdAt          DateTime       @default(now()) @map("created_at")
+
+  request           DocumentRequest   @relation("RequestWorkflows", fields: [requestId], references: [id])
+  workflowTemplate  WorkflowTemplate? @relation(fields: [workflowTemplateId], references: [id])
+  submitter         User              @relation("WorkflowSubmittedBy", fields: [submittedBy], references: [id])
+  currentForRequest DocumentRequest?  @relation("CurrentRequestWorkflow")
+  steps             ApprovalStep[]
+
+  @@index([requestId, status])
+  @@map("approval_workflows")
+}
+
+model ApprovalStep {
+  id                  BigInt             @id @default(autoincrement())
+  workflowId          BigInt             @map("workflow_id")
+  stepNo              Int                @map("step_no")
+  stepName            String             @map("step_name") @db.VarChar(255)
+  approverId          BigInt             @map("approver_id")
+  approverRoleId      BigInt?            @map("approver_role_id")
+  actionStatus        ApprovalStepStatus @default(PENDING) @map("action_status")
+  actionComment       String?            @map("action_comment") @db.Text
+  actionAt            DateTime?          @map("action_at")
+  delegatedFromUserId BigInt?            @map("delegated_from_user_id")
+  createdAt           DateTime           @default(now()) @map("created_at")
+
+  workflow          ApprovalWorkflow @relation(fields: [workflowId], references: [id])
+  approver          User             @relation("ApprovalStepApprover", fields: [approverId], references: [id])
+  approverRole      Role?            @relation(fields: [approverRoleId], references: [id])
+  delegatedFromUser User?            @relation("ApprovalStepDelegatedFrom", fields: [delegatedFromUserId], references: [id])
+
+  @@unique([workflowId, stepNo])
+  @@index([approverId, actionStatus])
+  @@map("approval_steps")
+}
+
+model DocumentPublishLog {
+  id          BigInt   @id @default(autoincrement())
+  fileId      BigInt   @map("file_id")
+  revisionId  BigInt   @map("revision_id")
+  publishedBy BigInt   @map("published_by")
+  publishedAt DateTime @default(now()) @map("published_at")
+  publishNote String?  @map("publish_note") @db.Text
+
+  file      File         @relation(fields: [fileId], references: [id])
+  revision  FileRevision @relation(fields: [revisionId], references: [id])
+  publisher User         @relation("DocumentPublishedBy", fields: [publishedBy], references: [id])
+
+  @@map("document_publish_logs")
+}
+
+model DocumentDistributionLog {
+  id                 BigInt   @id @default(autoincrement())
+  fileId             BigInt   @map("file_id")
+  revisionId         BigInt   @map("revision_id")
+  targetDepartmentId BigInt?  @map("target_department_id")
+  targetUserId       BigInt?  @map("target_user_id")
+  distributedBy      BigInt   @map("distributed_by")
+  distributedAt      DateTime @default(now()) @map("distributed_at")
+  channel            String?  @db.VarChar(50)
+
+  file             File         @relation(fields: [fileId], references: [id])
+  revision         FileRevision @relation(fields: [revisionId], references: [id])
+  targetDepartment Department?  @relation("DistributionTargetDepartment", fields: [targetDepartmentId], references: [id])
+  targetUser       User?        @relation("DistributionTargetUser", fields: [targetUserId], references: [id])
+  distributor      User         @relation("DocumentDistributedBy", fields: [distributedBy], references: [id])
+
+  @@map("document_distribution_logs")
+}
+
+model AuditLog {
+  id            BigInt   @id @default(autoincrement())
+  userId        BigInt?  @map("user_id")
+  module        String   @db.VarChar(100)
+  action        String   @db.VarChar(100)
+  referenceType String   @map("reference_type") @db.VarChar(100)
+  referenceId   String   @map("reference_id") @db.VarChar(100)
+  oldValue      String?  @map("old_value") @db.Text
+  newValue      String?  @map("new_value") @db.Text
+  remark        String?  @db.Text
+  ipAddress     String?  @map("ip_address") @db.VarChar(50)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([module, action, createdAt])
+  @@map("audit_logs")
+}
